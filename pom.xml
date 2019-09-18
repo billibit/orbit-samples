@@ -49,6 +49,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 	<modules>
 		<module>chat</module>
 		<module>helloworld</module>
+		<module>helloconcurrency</module>
 	</modules>
 	
 	<scm>
