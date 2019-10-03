@@ -107,30 +107,39 @@ public class Main
 	}
 
 	static public void processMessagesByMultipleActor() {
+		
+        Span spanParent = GlobalTracer.get().buildSpan("processMessagesByMultipleActor").start();
+		
         System.out.println("------------DEMO processing messages in sequence by multiple actor intances -----------------");
         final int total = 10;
         for( int i = 0; i < total; i++) {
-        	String message = "Welcome to orbit " + i;
-            System.out.println("Message to send: " + message);
-            
-        	// Each message is processed by a new instance of the HelloActor but in the order of receiving  
-        	Actor.getReference(Hello.class, String.format("%d", i)).sayHello(message).join();
+            Span span = GlobalTracer.get().buildSpan("action " + i).asChildOf(spanParent).start();	            
+            try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {    
+            	
+	            ActorTextMap spanContext = new ActorTextMap();
+	            GlobalTracer.get().inject(span.context(), Format.Builtin.TEXT_MAP, spanContext);
+        	
+	        	String message = "Welcome to orbit " + i;
+	            System.out.println("Message to send: " + message);
+	            
+	        	// Each message is processed by a new instance of the HelloActor but in the order of receiving  
+	        	Actor.getReference(Hello.class, String.format("%d", i)).sayHelloWithTrace(message, spanContext).join();
+            } finally {
+            	span.finish();
+            }
         }
 	}
 	
 	static public void processMessagesConcurrently() {
-        Span spanParent = GlobalTracer.get().buildSpan("processMessagesConcurrently")
-				  .start();
+		
+        Span spanParent = GlobalTracer.get().buildSpan("processMessagesConcurrently").start();
         
         System.out.println("------------DEMO processing messages concurrently by multiple actor instances-----------------");
         // Send messages concurrently
         // The messages are sent in sequence but it is processed by actors concurrently, so the responses are received without orders.   
         final int total = 10;
         for( int i = 0; i < total; i++) {
-            Span span = GlobalTracer.get()
-            		.buildSpan("action " + i)
-            		.asChildOf(spanParent)
-            		.start();	            
+            Span span = GlobalTracer.get().buildSpan("action " + i).asChildOf(spanParent).start();	            
             
             try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {    
             	
@@ -156,6 +165,7 @@ public class Main
 	}	
 	
 	static public void showMessageTimeoutException() {
+		
         System.out.println("------------DEMO message timeout exception by one actor instance-----------------");
 
         if ( true)
@@ -191,7 +201,7 @@ public class Main
         Tracer tracer = config.getTracer();
         GlobalTracer.registerIfAbsent(tracer);
 
-    	processMessagesByOneActor();
+    	//processMessagesByOneActor();
     	processMessagesConcurrently();
         //processMessagesByMultipleActor();
         //showMessageTimeoutException();
