@@ -28,13 +28,30 @@
 
 package cloud.orbit.samples.helloconcurrency;
 
+import java.util.concurrent.TimeUnit;
+
 import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.annotation.Timeout;
 import cloud.orbit.concurrent.Task;
+import io.opentracing.Span;
 
 /**
  * Created by joe@bioware.com on 2016-04-26.
  */
 public interface Hello extends Actor
 {
+	// Set an active span for the actor. There is one instance of the actor so does the active span
+	// TODO : Remove
+	//Task<String> setActiveSpan(Span span);
+	//Task<String> getActiveSpan();
+	
+    // Set the timeout annotation for this method in the actor
+    @Timeout(value = 4000, timeUnit = TimeUnit.MILLISECONDS)
     Task<String> sayHello(String greeting);
+    
+    @Timeout(value = 4000, timeUnit = TimeUnit.MILLISECONDS)
+    Task<String> sayHelloWithTrace(String greeting, ActorTextMap spanContext);
+    
+    // A method to say hello with a long waiting time
+    Task<String> sayHelloWithLongTimeToProcess(String greeting);
 }

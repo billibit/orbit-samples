@@ -30,23 +30,80 @@ package cloud.orbit.samples.helloconcurrency;
 
 import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.Stage;
+import cloud.orbit.concurrent.Task;
+import io.jaegertracing.Configuration;
+import io.opentracing.Scope;
+import io.opentracing.Span;
+import io.opentracing.Tracer;
+import io.opentracing.propagation.Format;
+import io.opentracing.util.GlobalTracer;
 
 /**
  * Created by jianjunzhou@ea.com.
- * This demo is created from the helloworld example but it is designed to demo the concurrency feature in orbit framework
+ * This demo is created from the helloworld example but it is designed to demo the concurrency features in the orbit framework
  */
 public class Main
 {
+	static private void printActiveSpan() {
+		Span activeSpan = GlobalTracer.get().activeSpan();
+		System.out.println( "Active Trace Id = " + activeSpan.context().toTraceId() + " Span Id = " + activeSpan.context().toSpanId());		
+	}
+	
 	static public void processMessagesByOneActor() {
+		
         System.out.println("------------DEMO processing messages in sequence by one actor -----------------");
         final int total = 10;
-        for( int i = 0; i < total; i++) {
-        	String message = "Welcome to orbit " + i;
-            System.out.println("Message to send: " + message);
-            
-        	// Each message is processed by the actor 0, therefore all the messages are sent in sequence and processed in sequence too. The order of processing is opposite to the order of sending. 
-        	Actor.getReference(Hello.class, "0").sayHello(message).join();
-        }		
+        
+        Span spanParent = GlobalTracer.get().buildSpan("processMessagesByOneActor")
+				  .withTag("author", "zjj")
+				  .withTag("app", "hello concurrency")
+				  .start();
+        
+        spanParent.log("Loop starting");
+        System.out.println( "Parent Trace Id = " + spanParent.context().toTraceId() + " Span Id = " + spanParent.context().toSpanId());
+        
+        try ( Scope scope = GlobalTracer.get().activateSpan(spanParent)) {
+        	      
+	        for( int i = 0; i < total; i++) {
+	        	
+	        	printActiveSpan();        		
+	
+	        	if ( i == total / 2) {
+	        		
+	                spanParent.log("Loop in the middle");	        		
+	        	}
+	        	
+	            Span span = GlobalTracer.get()
+	            		.buildSpan("action " + i)
+	            		.asChildOf(spanParent)
+	            		.start();
+	            span.setTag("Kind", "Code block in Loop");
+
+	            
+	            try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {      
+
+		        	printActiveSpan();        		
+	            	
+	            	Span activeSpan = GlobalTracer.get().activeSpan();
+		            System.out.println( "Child Trace Id = " + activeSpan.context().toTraceId() + " Span Id = " + activeSpan.context().toSpanId());
+		            
+		            ActorTextMap spanContext = new ActorTextMap();
+		            GlobalTracer.get().inject(span.context(), Format.Builtin.TEXT_MAP, spanContext);
+		            
+		        	String message = "Welcome to orbit " + i;
+		            System.out.println("Message to send: " + message);
+		            
+		        	// Each message is processed by the actor 0, therefore all the messages are sent in sequence and processed in sequence too. The order of processing is opposite to the order of sending. 
+		        	Actor.getReference(Hello.class, "0").sayHelloWithTrace(message, spanContext).join();
+	            } finally {
+	            	span.finish();
+	            }
+	        } // for ...
+        } finally {
+        	spanParent.finish();
+        }
+        
+        spanParent.log("Loop ending");
 	}
 
 	static public void processMessagesByMultipleActor() {
@@ -62,30 +119,79 @@ public class Main
 	}
 	
 	static public void processMessagesConcurrently() {
+        Span spanParent = GlobalTracer.get().buildSpan("processMessagesConcurrently")
+				  .start();
+        
         System.out.println("------------DEMO processing messages concurrently by multiple actor instances-----------------");
         // Send messages concurrently
         // The messages are sent in sequence but it is processed by actors concurrently, so the responses are received without orders.   
         final int total = 10;
         for( int i = 0; i < total; i++) {
-        	String message = "Welcome to orbit " + i;
-            System.out.println("Message to send: " + message);
+            Span span = GlobalTracer.get()
+            		.buildSpan("action " + i)
+            		.asChildOf(spanParent)
+            		.start();	            
             
-            // Each message is processed by a new instance of the HelloActor
-        	Actor.getReference(Hello.class, String.format("%d", i)).sayHello(message);
+            try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {      
+	        	String message = "Welcome to orbit " + i;
+	            System.out.println("Message to send: " + message);
+	            
+	            // Each message is processed by a new instance of the HelloActor
+	        	Hello actor = Actor.getReference(Hello.class, String.format("%d", 0));
+	        	Task<String> task = actor.sayHello(message);
+	        	
+	        	if ( i == total) {
+	        		task.join();
+	        	}
+            } finally {
+            	span.finish();
+            }
         }
-		
+        
+        spanParent.finish();
 	}	
+	
+	static public void showMessageTimeoutException() {
+        System.out.println("------------DEMO message timeout exception by one actor instance-----------------");
+
+        if ( true)
+        {
+	    	String message = "Welcome to orbit 0";
+	        System.out.println("Message to send: " + message);
+	    	Actor.getReference(Hello.class, "0").sayHelloWithLongTimeToProcess(message);
+        }
+        {
+	    	String message = "Welcome to orbit 1";
+	        System.out.println("Message to send: " + message);
+	    	Actor.getReference(Hello.class, "0").sayHello(message);
+        }
+        {
+	    	String message = "Welcome to orbit 2";
+	        System.out.println("Message to send: " + message);
+	    	Actor.getReference(Hello.class, "0").sayHello(message);
+        }
+
+	}	
+	
     public static void main(String[] args) throws Exception
     {
+
         // Create and bind to an orbit stage
         Stage stage = new Stage.Builder().clusterName("orbit-demo-concurrency-cluster").build();
-        stage.start().join();
+        Task<?> task = stage.start();
+        task.join();
         stage.bind();
 
-        processMessagesByOneActor();
-        processMessagesByMultipleActor();
-        processMessagesConcurrently();
-        
+        // Setup the tracer
+        Configuration config = Configuration.fromEnv();
+        Tracer tracer = config.getTracer();
+        GlobalTracer.registerIfAbsent(tracer);
+
+    	processMessagesByOneActor();
+        //processMessagesByMultipleActor();
+    	//processMessagesConcurrently();
+        //showMessageTimeoutException();
+
         // Shut down the stage
         stage.stop().join();
     }
