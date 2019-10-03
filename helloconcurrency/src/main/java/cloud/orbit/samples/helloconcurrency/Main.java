@@ -132,13 +132,17 @@ public class Main
             		.asChildOf(spanParent)
             		.start();	            
             
-            try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {      
+            try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {    
+            	
+	            ActorTextMap spanContext = new ActorTextMap();
+	            GlobalTracer.get().inject(span.context(), Format.Builtin.TEXT_MAP, spanContext);
+            	
 	        	String message = "Welcome to orbit " + i;
 	            System.out.println("Message to send: " + message);
 	            
 	            // Each message is processed by a new instance of the HelloActor
 	        	Hello actor = Actor.getReference(Hello.class, String.format("%d", 0));
-	        	Task<String> task = actor.sayHello(message);
+	        	Task<String> task = actor.sayHelloWithTrace(message, spanContext);
 	        	
 	        	if ( i == total) {
 	        		task.join();
@@ -188,8 +192,8 @@ public class Main
         GlobalTracer.registerIfAbsent(tracer);
 
     	processMessagesByOneActor();
+    	processMessagesConcurrently();
         //processMessagesByMultipleActor();
-    	//processMessagesConcurrently();
         //showMessageTimeoutException();
 
         // Shut down the stage

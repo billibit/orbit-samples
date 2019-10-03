@@ -58,7 +58,7 @@ public class HelloActor extends AbstractActor implements Hello
 	@Override
     public Task activateAsync()
     {
-        String spanName = this.getClass().toString() + this.getIdentity();        
+        String spanName = "Actor Life Time: " + this.getClass().toString() + " # " + this.getIdentity();        
         parentSpan = GlobalTracer.get().buildSpan(spanName).start();
         
         System.out.println("HelloActor::activateAsync: " + spanName + " span: " + parentSpan.context().toSpanId());        	   		
@@ -79,12 +79,6 @@ public class HelloActor extends AbstractActor implements Hello
         
 	public Task<String> sayHello(String greeting)
     {	
-        Span span = GlobalTracer.get()
-        		.buildSpan("HelloActor:: " + "sayHello")
-        		.asChildOf(this.getActiveSpan())
-        		.start();	            
-		
-        try ( Scope scopeItem = GlobalTracer.get().activateSpan( span)) {
 	    	try {
 	    		// Sleep X ms and then send the message back
 	            long delay = (long)(50);
@@ -97,10 +91,6 @@ public class HelloActor extends AbstractActor implements Hello
 	
 	        return Task.fromValue("You said: '" + greeting
 	                + "', I say: Hello from " + System.identityHashCode(this) + " !");
-	    } finally {
-	    	span.finish();
-	    }
-        
     }
 	
 	//
@@ -121,18 +111,9 @@ public class HelloActor extends AbstractActor implements Hello
         span.setTag("Kind", "Orbit Actor");
         
         try ( Scope scopeItem = GlobalTracer.get().activateSpan( span)) {
-	    	try {
-	    		// Sleep X ms and then send the message back
-	            long delay = (long)(50);
-	    		TimeUnit.MILLISECONDS.sleep( delay);
-	    	} catch( Exception ex) {
-	            System.out.println("Exception: " + ex.getMessage() + " Cause: " + ex.getCause());        	   		
-	    	}
-	    	
-	    	System.out.println("Actor: " + greeting);
-	
-	        return Task.fromValue("You said: '" + greeting
-	                + "', I say: Hello from " + System.identityHashCode(this) + " !");
+        	
+        	return sayHello(greeting);
+        	
 	    } finally {
 	    	span.finish();
 	    }
