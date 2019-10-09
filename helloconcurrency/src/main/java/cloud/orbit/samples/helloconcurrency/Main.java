@@ -28,9 +28,16 @@
 
 package cloud.orbit.samples.helloconcurrency;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+
 import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.Stage;
+import cloud.orbit.actors.Stage.Builder;
+import cloud.orbit.actors.runtime.ActorTaskContext;
 import cloud.orbit.concurrent.Task;
+import cloud.orbit.concurrent.TaskContext;
 import io.jaegertracing.Configuration;
 import io.opentracing.Scope;
 import io.opentracing.Span;
@@ -48,7 +55,7 @@ public class Main
 		Span activeSpan = GlobalTracer.get().activeSpan();
 		System.out.println( "Active Trace Id = " + activeSpan.context().toTraceId() + " Span Id = " + activeSpan.context().toSpanId());		
 	}
-	
+
 	static public void processMessagesByOneActor() {
 		
         System.out.println("------------DEMO processing messages in sequence by one actor -----------------");
@@ -87,23 +94,24 @@ public class Main
 	            	Span activeSpan = GlobalTracer.get().activeSpan();
 		            System.out.println( "Child Trace Id = " + activeSpan.context().toTraceId() + " Span Id = " + activeSpan.context().toSpanId());
 		            
-		            ActorTextMap spanContext = new ActorTextMap();
-		            GlobalTracer.get().inject(span.context(), Format.Builtin.TEXT_MAP, spanContext);
+		            ActorTaskContext atc = OpenTraceUtil.pushSpanContext( span);
 		            
 		        	String message = "Welcome to orbit " + i;
 		            System.out.println("Message to send: " + message);
 		            
-		        	// Each message is processed by the actor 0, therefore all the messages are sent in sequence and processed in sequence too. The order of processing is opposite to the order of sending. 
-		        	Actor.getReference(Hello.class, "0").sayHelloWithTrace(message, spanContext).join();
+		        	// Each message is processed by the actor 0, therefore all the messages are sent in sequence and processed in sequence too. The order of processing is opposite to the order of sending.	        		        	
+		        	Task<String> task = Actor.getReference(Hello.class, "0").sayHello(message);		        	
+		        	task.join();
+		        	
+		        	OpenTraceUtil.popSpanContext(atc);
+
 	            } finally {
 	            	span.finish();
 	            }
 	        } // for ...
         } finally {
         	spanParent.finish();
-        }
-        
-        spanParent.log("Loop ending");
+        }        
 	}
 
 	static public void processMessagesByMultipleActor() {
@@ -116,14 +124,15 @@ public class Main
             Span span = GlobalTracer.get().buildSpan("action " + i).asChildOf(spanParent).start();	            
             try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {    
             	
-	            ActorTextMap spanContext = new ActorTextMap();
-	            GlobalTracer.get().inject(span.context(), Format.Builtin.TEXT_MAP, spanContext);
-        	
+	            ActorTaskContext atc = OpenTraceUtil.pushSpanContext( span);
+       	
 	        	String message = "Welcome to orbit " + i;
 	            System.out.println("Message to send: " + message);
 	            
 	        	// Each message is processed by a new instance of the HelloActor but in the order of receiving  
-	        	Actor.getReference(Hello.class, String.format("%d", i)).sayHelloWithTrace(message, spanContext).join();
+	        	Actor.getReference(Hello.class, String.format("%d", i)).sayHello(message).join();
+	        	
+	        	OpenTraceUtil.popSpanContext(atc);
             } finally {
             	span.finish();
             }
@@ -143,19 +152,19 @@ public class Main
             
             try ( Scope scopeItem = GlobalTracer.get().activateSpan(span)) {    
             	
-	            ActorTextMap spanContext = new ActorTextMap();
-	            GlobalTracer.get().inject(span.context(), Format.Builtin.TEXT_MAP, spanContext);
-            	
+            	ActorTaskContext atc = OpenTraceUtil.pushSpanContext(span);            	
 	        	String message = "Welcome to orbit " + i;
 	            System.out.println("Message to send: " + message);
 	            
 	            // Each message is processed by a new instance of the HelloActor
 	        	Hello actor = Actor.getReference(Hello.class, String.format("%d", 0));
-	        	Task<String> task = actor.sayHelloWithTrace(message, spanContext);
+	        	Task<String> task = actor.sayHello(message);
 	        	
 	        	if ( i == total) {
 	        		task.join();
 	        	}
+	        	
+	        	OpenTraceUtil.popSpanContext(atc);
             } finally {
             	span.finish();
             }
@@ -191,18 +200,26 @@ public class Main
     {
 
         // Create and bind to an orbit stage
-        Stage stage = new Stage.Builder().clusterName("orbit-demo-concurrency-cluster").build();
+    	Builder builder = new Stage.Builder();
+    	builder.clusterName("orbit-demo-concurrency-cluster");
+        Stage stage = builder.build();
+
+        OpenTraceUtil.enableTracing( stage);
+
         Task<?> task = stage.start();
         task.join();
         stage.bind();
+        
 
         // Setup the tracer
         Configuration config = Configuration.fromEnv();
         Tracer tracer = config.getTracer();
         GlobalTracer.registerIfAbsent(tracer);
 
-    	//processMessagesByOneActor();
-    	processMessagesConcurrently();
+        //SpanTest st = new SpanTest();        
+        //st.processMessagesSayHelloOnce( 100);
+    	processMessagesByOneActor();
+    	//processMessagesConcurrently();
         //processMessagesByMultipleActor();
         //showMessageTimeoutException();
 
@@ -210,3 +227,4 @@ public class Main
         stage.stop().join();
     }
 }
+
